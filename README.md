@@ -2,6 +2,11 @@
 
 # KVMem
 
+Experimental backend integration: [Radiance ABI15 on Windows RDNA4](docs/radiance-integration.md)
+([complete historical performance comparison](docs/radiance/PERFORMANCE-COMPARISON.md)).
+The latest-core Radiance integration has CPU/link validation; historical GPU results
+are identified separately and are not a release qualification of the new tree.
+
 **Long-context conversations and AI agents on limited GPU memory.**
 
 KVMem keeps complete native KV history in system RAM, with optional SSD tiering. The GPU holds the history needed for the current request and space for generation. It supports multiple inference backends — **NInfer, llama.cpp and PolyStrata**, with more coming soon — through a local Web UI and OpenAI-compatible APIs.
