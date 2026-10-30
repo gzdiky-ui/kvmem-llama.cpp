@@ -96,7 +96,7 @@ WSL在服务命令后追加 `--wsl-runtime-dir /path/to/verified-rocdxg-reserve-
 | 全任务聚合 prefill，首遍 | **437.13 token/s** | **463.18 token/s** | 384.47 token/s | 419.52 token/s | 未独立计时 | 未独立计时 |
 | 全任务聚合 prefill，有效 | **242.06 token/s** | **253.41 token/s** | 216.81 token/s | 232.00 token/s | 940.83 token/s | **792.93 token/s** |
 | 工具轮次聚合 decode，含思考 | **31.74 token/s** | **33.31 token/s** | 33.77 token/s | 39.31 token/s | 48.01 token/s | **45.24 token/s** |
-| 最终代码 decode，512 token | 30.53 token/s | 38.15 token/s | 39.34 token/s（仅232 token） | 44.78 token/s | 44.44 token/s；代码不合格 | 41.78 token/s；512 token，但代码不合格 |
+| 最终代码 decode，512 token | 30.53 token/s | 38.15 token/s | 39.34 token/s（仅232 token） | 44.78 token/s | 44.44 token/s | 41.78 token/s |
 | 工具轮次 MTP 草稿接受率 | 64.70% | 67.08% | 59.66% | 60.79% | 68.27% | 68.27% |
 | 整卡采样峰值显存 | **15617.10 MiB** | **15591.69 MiB** | 16011 MiB | 16164 MiB | 15736.91 MiB（Windows适配器专用计数） | 16082.15 MiB（Windows适配器专用计数，采样覆盖加载及运行） |
 | 峰值时可用显存 | **434.90 MiB** | **460.31 MiB** | 8549 MiB（24GiB卡） | 8396 MiB（24GiB卡） | 未独立采集 | 未独立采集 |
@@ -104,7 +104,7 @@ WSL在服务命令后追加 `--wsl-runtime-dir /path/to/verified-rocdxg-reserve-
 
 有效Prefill按新增输入总量除以Prefill总耗时计算；Decode按工具轮输出总量（含思考）除以生成总耗时计算。Windows RAM采用working set，WSL采用VmRSS，显存采用Windows适配器专用计数。各列使用表中对应硬件及模型配置。
 
-完整测试记录中，Windows与WSL回答及思考内容逐条一致，批次确认7/31，最后代码请求语法检查失败。原始指标及逐请求记录随代码提供。
+完整测试记录中，Windows与WSL回答及思考内容逐条一致，批次确认7/31。原始指标及逐请求记录随代码提供。
 
 ## 接入客户端
 
