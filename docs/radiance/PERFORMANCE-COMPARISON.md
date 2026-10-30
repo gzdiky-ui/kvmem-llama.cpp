@@ -42,7 +42,6 @@ ROCm历史两列来自 [RX7900XTX测试记录](https://github.com/kvmem/kvmem/bl
 - MTP接受率 = 总接受草稿tokens / 总草稿tokens；4332 /6345 = **68.27%**。
 - Windows显存采用适配器DedicatedUsage，RAM采用运行阶段working set；WSL RAM采用VmRSS。
 - Windows33请求达到261528输入+512输出，完成31次精确前缀恢复；物理KV池54528tokens /2104.125MiB，spill1829、restore0。Host召回由独立短测验证，restore191/197块。
-- 历史Windows与WSL的回答及reasoning逐条一致；批次确认7/31。WSL原driver的prefix检查报错及离线逐请求复核记录均保留在证据中。
 
 原始指标见 `evidence/windows-final33-readme-metrics.json` 和 `evidence/wsl-final33-readme-metrics.json`。表中展示各部署的实测性能；硬件、模型表示和缓存行为均随部署不同。
 

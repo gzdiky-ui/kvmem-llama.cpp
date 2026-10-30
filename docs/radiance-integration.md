@@ -104,7 +104,6 @@ WSL在服务命令后追加 `--wsl-runtime-dir /path/to/verified-rocdxg-reserve-
 
 有效Prefill按新增输入总量除以Prefill总耗时计算；Decode按工具轮输出总量（含思考）除以生成总耗时计算。Windows RAM采用working set，WSL采用VmRSS，显存采用Windows适配器专用计数。各列使用表中对应硬件及模型配置。
 
-完整测试记录中，Windows与WSL回答及思考内容逐条一致，批次确认7/31。原始指标及逐请求记录随代码提供。
 
 ## 接入客户端
 
