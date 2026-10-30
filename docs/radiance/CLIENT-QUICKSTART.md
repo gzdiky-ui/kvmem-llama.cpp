@@ -3,12 +3,12 @@
 ## 先分清三个东西
 
 1. **模型文件**：ModelScope 私有仓库 `Zeshion/Qwen3.8-27B-Radiance-KVMem-MXFP4` 中的 `target-head-mxfp4-a.rad`。使用Radiance服务加载。
-2. **推理服务**：Radiance 的 C++ / AMD GPU 程序，加上 KVMem adapter。Python启动脚本只负责参数、环境和内存保护，不在Python里执行模型算子。
+2. **推理服务**：Radiance 的 C++ / AMD GPU 程序，加上 KVMem adapter。Python启动脚本负责参数、环境和内存保护，C++/HIP执行模型算子。
 3. **Harness / DSH**：调用本机 HTTP API 的客户端。部署流程为准备模型、编译并启动服务、连接客户端；当前DSH通过生命周期插件管理服务。
 
 ## 当前机器：现成可用版本
 
-直接使用 Windows DeepSeek Harness。已部署的本地 provider 为 `radiance-local`，API为 `http://127.0.0.1:18380/v1`。新建会话默认xhigh；旧会话可能保留以前的Off设置。现用版详细启动和回退保留在原部署目录；个人profile备份不包含在本公开源码包中。
+直接使用 Windows DeepSeek Harness。已部署的本地 provider 为 `radiance-local`，API为 `http://127.0.0.1:18380/v1`。新建会话默认xhigh；旧会话可能保留以前的Off设置。源码包提供通用启动例程，现用客户端配置备份保留在本机部署目录。
 
 同一时间运行一个模型进程。
 
@@ -115,6 +115,6 @@ print("usage:", result.get("usage"))
 
 ## 发给维护者的话（可直接改称呼使用）
 
-> 这次整理了Radiance + KVMem的RDNA4适配，Windows原生和WSL的既有实测分别保留。已把adapter叠到最新KVMem固定commit `89c66980`，增加Radiance原生packed KV页的布局契约并复用现有pressure_selection；没有用旧core覆盖新版。模型单独在ModelScope私有仓库，代码包不含权重。默认BUDGET36864、生成预留16384、batch512、context262144、MTP3，K/V均FP8。另附完整README同指标表、量化七个张量的清单和构建/启动命令。新master候选仍以自身构建和后续GPU结果为准，未把旧33轮成绩自动贴给它；当前仍是ABI15、mean-key评分，不宣称ABI31或完整新版attention反馈/RDNA3验收。
+> 为 KVMem 接入 Radiance AMD RDNA4 后端，支持 Windows 原生与 Linux/WSL。提供 packed KV 页布局、Host KV 换出与召回、前缀缓存、循环生成，以及 Windows 显存分配与映射优化。复用公共 pressure_selection，采用 mean-key 评分。默认 BUDGET 36864、生成预留 16384、batch 512、context 262144、MTP 3，K/V 均为 FP8。模型通过 ModelScope 提供，配套文档包含双系统完整测试数据、量化清单及构建和启动命令。
 
-PR标题/正文和精确测试状态见代码包的 `PR-DRAFT.md`。本轮未push或创建PR。
+部署说明及完整测试表见 `docs/radiance-integration.md`。
