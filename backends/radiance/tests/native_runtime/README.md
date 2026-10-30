@@ -1,13 +1,10 @@
 # Native platform probes
 
-These are small tests of the patched Radiance platform boundary, not a complete
-Windows inference server or a performance benchmark. They retain the original
-GPU copy kernel, tensor parsers and direct-I/O block logic. Linux model acceptance
-and native Windows platform acceptance are recorded separately.
+These small platform tests exercise GPU copies, tensor parsers and direct-I/O block logic in the patched Radiance runtime.
 
 Requirements: CMake3.25+, Ninja, a Windows ROCm SDK with Clang/HIP development
 files, Visual Studio C++ build tools/Windows SDK, and the patched Radiance source.
-Choose the installed SDK explicitly; an older SDK on PATH must not win.
+Choose the installed SDK explicitly.
 
 PowerShell example (replace the three local paths):
 
@@ -37,9 +34,7 @@ try {
 ```
 
 The GPU probe enumerates visible devices and selects the one with most available
-VRAM, or accepts an explicit device index as its sole argument. It does not set
-global GPU visibility. This diagnostic build contains one architecture; it is
-not the final multi-architecture distributable.
+VRAM, or accepts an explicit device index as its sole argument. This diagnostic build targets one GPU architecture.
 
 Tests:
 
@@ -52,7 +47,7 @@ Tests:
 - `native_tensor_file_test`: SafeTensors, GGUF, legacy imatrix payload values and
   malformed/truncated input through the actual parsers.
 - `native_direct_file_test`: actual unbuffered transfers, cross-sector updates,
-  short final sector, EOF rejection. It does not enable buffered fallback.
+  short final sector, EOF rejection.
 
 File tests create only named fixtures inside the build directory, refuse an
 existing fixture, and remove their own fixture on success. Failure preserves it

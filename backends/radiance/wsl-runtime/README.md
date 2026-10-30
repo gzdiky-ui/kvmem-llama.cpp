@@ -10,7 +10,7 @@
 - 对非零 scratch 请求，初始每 wave 至少预留 8192 bytes；历史设备为 1024 waves，因而初始分配 8 MiB。分配量随 GPU 的 wave 数量变化。
 - `UpdateScratch` 分配失败后立即返回 `HSA_STATUS_ERROR_OUT_OF_RESOURCES`，避免原调用方忽略失败继续提交。保留 `SCRATCH_RESERVE_V` 日志。
 
-原作者、版权与许可归属见 `UPSTREAM-LICENSE.md`。大部分源代码为 MIT；其中 `src/thunk_proxy/libthunk_proxy.a` 有单独的 AMD 二进制许可，不能将整个上游或最终链接产物笼统说成纯 MIT。本材料只分发补丁、许可与说明，不捆绑该二进制。
+原作者、版权与许可归属见 `UPSTREAM-LICENSE.md`。大部分源代码为 MIT；`src/thunk_proxy/libthunk_proxy.a` 采用单独的 AMD 二进制许可。本目录分发补丁、许可与说明。
 
 ## 在 WSL 构建到独立目录
 
