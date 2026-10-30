@@ -2,10 +2,7 @@
 
 # KVMem
 
-Experimental backend integration: [Radiance ABI15 on Windows RDNA4](docs/radiance-integration.md)
-([complete historical performance comparison](docs/radiance/PERFORMANCE-COMPARISON.md)).
-The latest-core Radiance integration has CPU/link validation; historical GPU results
-are identified separately and are not a release qualification of the new tree.
+AMD RDNA4 backend: [Radiance on Windows and Linux](docs/radiance-integration.md), with build and deployment commands, default settings, and [full benchmark comparisons](docs/radiance/PERFORMANCE-COMPARISON.md).
 
 **Long-context conversations and AI agents on limited GPU memory.**
 
