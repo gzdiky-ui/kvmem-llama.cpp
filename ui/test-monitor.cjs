@@ -45,6 +45,7 @@ const server = http.createServer((req, res) => {
     }
     res.setHeader("Content-Type", "application/json");
     res.setHeader("Cache-Control", "no-store");
+    if (req.url === '/slots' && fixture.backend === 'radiance') { res.statusCode=404; return res.end('{}'); }
     if (req.url === '/stats') return res.end(JSON.stringify(fixture.nativeStats || {queue:{depth:2}}));
     if (req.url === '/api/launcher/hardware') {
       if (!fixture.sharedDisk || fixture.diskFailure) {
@@ -89,6 +90,7 @@ const server = http.createServer((req, res) => {
               schema_version: 1,
               server_instance: instance,
               backend: fixture.backend || "llamacpp",
+              kvmem: fixture.monitorCache || {},
               sampled_at_ms: Date.now(),
               active: fixture.active ?? (fixture.idle || fixture.empty ? [] : [{...record(), ...(fixture.nativeRequestMetrics || {}), ...(fixture.liveLlama ? {
                 decode_tps_live:23.5, decode_tps_mean:8, decode_tps_window_ms:3000,
@@ -177,6 +179,15 @@ if (process.env.MONITOR_FIXTURE_ONLY) {
     );
     assert.equal(await page.locator("#app").getAttribute("data-theme"), "dark");
     assert.equal(await page.locator('[data-gpu="power"]').textContent(), "—");
+    fixtureScenario={backend:'radiance',monitorCache:{host_payload_bytes:1048576,host_payload_budget_bytes:8388608,
+      retained_sessions:3,history_hits:5,history_evictions:2,disk_payload_bytes:0,disk_payload_budget_bytes:0},
+      active:[{...record(),status:'queued',prefill_tps:null,decode_tps:null}]};
+    await page.waitForFunction(()=>document.querySelector('[data-value="queue"]').textContent==='活动 1 · 排队 1');
+    assert.equal(await page.locator('[data-value="sessions"]').textContent(),'3');
+    assert.equal(await page.locator('[data-value="history"]').textContent(),'5 / 2');
+    assert.equal(await page.locator('[data-bar="host"]').evaluate(e=>e.style.width),'12.5%');
+    assert.notEqual(await page.locator('.s-state').getAttribute('data-stale'),'true');
+    fixtureScenario={};
     for (const backend of ['llamacpp', 'ninfer', 'polystrata']) {
       const media = {has_media:true, status:'processing', generated_tokens:0};
       fixtureScenario = {backend,nativeRequestMetrics:media};

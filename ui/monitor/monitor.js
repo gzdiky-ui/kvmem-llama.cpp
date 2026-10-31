@@ -438,7 +438,7 @@
       ? list.reduce((n, x) => n + x[field], 0)
       : null;
   function cacheData() {
-    if (state.backend === "polystrata") return state.kvmem || {};
+    if (state.backend === "polystrata" || state.backend === "radiance") return state.kvmem || {};
     if (state.backend === "ninfer")
       return stats?.kvmem || props.kvmem?.usage || {};
     const storage = slots.map((s) => s.kvmem?.storage).filter(Boolean),
@@ -875,7 +875,7 @@
     text("prefill-tokens", t("新算 {0} · 复用 {1} tokens", fmt(prefill.tokens), fmt(r?.cached_tokens)));
     text("prefill-times", prefillTimes(prefill, r));
     const queued = state.queued_count ?? (state.backend === "ninfer" ? stats?.queue?.depth
-      : state.backend === "llamacpp" && !state.dropped_records ? state.active.filter(x => x.status === "queued").length : null);
+      : ["llamacpp", "radiance"].includes(state.backend) && !state.dropped_records ? state.active.filter(x => x.status === "queued").length : null);
     const pending=number(queued)?fmt(queued):"—";
     text("queue", t("活动 {0} · 排队 {1}",fmt(state.active.length),pending));
     renderActualSpec(r);
@@ -1024,7 +1024,10 @@
       const [snapshot, configuration, lanes, systemHardware] = await Promise.all([
         get("../api/monitor/snapshot", controller.signal),
         get("../props", controller.signal),
-        get("../slots", controller.signal),
+        get("../slots", controller.signal).catch(error => {
+          if (error.status===404) return null;
+          throw error;
+        }),
         get("../api/launcher/hardware", controller.signal).catch(error =>
           error.status === 404 ? null : {sampled_at_ms:null}),
       ]);
@@ -1032,7 +1035,7 @@
         snapshot.schema_version !== 1 ||
         !Array.isArray(snapshot.active) ||
         !Array.isArray(snapshot.recent) ||
-        !Array.isArray(lanes)
+        !(Array.isArray(lanes) || (snapshot.backend==="radiance" && lanes===null))
       )
         throw new Error(t("不兼容的监控数据"));
       const runtime =
@@ -1067,7 +1070,7 @@
         ? systemHardware : systemHardware === null ? null : {sampled_at_ms:null};
       state = snapshot;
       props = configuration;
-      slots = lanes;
+      slots = lanes || [];
       stats = runtime;
       failures = 0;
       lastGood = Date.now();

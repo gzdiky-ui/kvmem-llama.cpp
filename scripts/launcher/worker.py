@@ -33,7 +33,7 @@ def probe_worker(worker, backend, environment=None):
     try:
         run = subprocess.run([str(path), '--kvmem-capabilities'], capture_output=True,
             encoding='utf-8', errors='replace', timeout=10, cwd=path.parent,
-            env={**os.environ, **(environment or {}), 'CUDA_VISIBLE_DEVICES': '-1'},
+            env={**os.environ, **(environment or {}), 'CUDA_VISIBLE_DEVICES': '-1', 'HIP_VISIBLE_DEVICES':'-1', 'ROCR_VISIBLE_DEVICES':'-1'},
             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         value = json.loads(run.stdout)
         if (run.returncode or not isinstance(value, dict) or value.get('schema_version') != 1

@@ -104,7 +104,14 @@ ENGINE_DEFAULTS = {'ninfer': {'Context': 262144,
                                '128',
                                '--elastic-physical-reserve-mib',
                                '512']}}
-STRINGS = {'Tokenizer','PolystrataSource','Python','VisionWorker','Mmproj','QueryScorer','Backend', 'Model', 'Worker', 'Gpu', 'ListenHost', 'KvType', 'KvTypeK', 'KvTypeV', 'DiskPath',
+ENGINE_DEFAULTS['radiance'] = dict(Backend='radiance', Context=65536, Budget=4096, Reserve=1024,
+    HostMiB=8192, SinkTokens=128, RecentTokens=512, Concurrency=1, RetainedSessions=8,
+    QueryScorer='page-softmax', ScoreAggregation='mean', GraphAlpha=.2, Lrfu=False,
+    QueryMaxTokens=512, QueryReplayMaxTokens=2048, KvType='fp8', Prefill=512,
+    SpeculativeMode='none', DraftTokens=0, DraftPolicy='fixed', Vision=False, MaxTokens=0,
+    ThinkingMode='default', ThinkingBudget=0, VramReserveMiB=1024,
+    VisionTokens=1024, VisionResidency='resident')
+STRINGS = {'RadianceHome', 'RocmPath', 'Tokenizer','PolystrataSource','Python','VisionWorker','Mmproj','QueryScorer','Backend', 'Model', 'Worker', 'Gpu', 'ListenHost', 'KvType', 'KvTypeK', 'KvTypeV', 'DiskPath',
            'VisionResidency',
            'DeviceProfile', 'ScoreAggregation', 'QueryScorer', 'ApiKey', 'ModelAlias', 'LogLevel',
            'ChatTemplateFile', 'ThinkingMode', 'ReasoningEffort', 'SpeculativeMode', 'DraftPolicy', 'DraftModel'}
@@ -116,7 +123,7 @@ BOOLEANS = {'AdaptiveMtp', 'FastPrefill', 'Vision', 'NoLrfu', 'Lrfu', 'PreserveT
 DECIMALS = {'LrfuLambda', 'LrfuTopFraction', 'GraphAlpha'}
 # Deliberately limited native escape hatch. Common options must not be duplicated.
 NATIVE = {'llamacpp': {'--threads', '--threads-batch', '--n-gpu-layers'},
-          'ninfer': {'--threads'}, 'polystrata': {'--threads', '--elastic-headroom-mib', '--elastic-physical-reserve-mib'}}
+          'radiance': {'--http-threads'}, 'ninfer': {'--threads'}, 'polystrata': {'--threads', '--elastic-headroom-mib', '--elastic-physical-reserve-mib'}}
 NATIVE_SWITCHES = {'polystrata': {'--elastic-experts', '--elastic-experts-headroom'}}
 
 
@@ -143,7 +150,9 @@ def normalize(data, backends):
         p.setdefault('BlockTokens', 32)
         if type(p['BlockTokens']) is not int or p['BlockTokens'] not in (32, 64):
             raise ValueError('PolyStrata BlockTokens must be 32 or 64')
-    elif 'BlockTokens' in p:
+    elif p['Backend']=='radiance' and p.get('BlockTokens',128)!=128:
+        raise ValueError('Radiance BlockTokens must be 128')
+    elif p['Backend']!='radiance' and 'BlockTokens' in p:
         raise ValueError('BlockTokens configures PolyStrata in this console')
     for key, value in p.items():
         if key in STRINGS and (not isinstance(value, str) or '\x00' in value or len(value) > 8192):
@@ -206,7 +215,7 @@ def normalize(data, backends):
         profile = SPECULATIVE_PROFILES[p['Backend']].get(mode)
         if profile is None:
             raise ValueError('Unsupported SpeculativeMode')
-        count = p.get('DraftTokens', p.get('MtpDrafts', 5 if mode == 'dflash2' else 4 if mode == 'mtp' else 0))
+        count = p.get('DraftTokens', p.get('MtpDrafts', 5 if mode == 'dflash2' else (3 if p['Backend']=='radiance' else 4) if mode == 'mtp' else 0))
         policy = p.get('DraftPolicy', 'adaptive' if p.get('AdaptiveMtp') else 'fixed')
         if policy not in {'fixed', 'adaptive'}:
             raise ValueError('DraftPolicy must be fixed or adaptive')
