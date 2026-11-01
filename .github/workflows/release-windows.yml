@@ -69,16 +69,26 @@ jobs:
       - name: Install CUDA ${{ env.CUDA_VERSION }}
         shell: pwsh
         run: |
-          & $env:CUDA_INSTALLER /silent /addtoappdata /norestart
-          if ($LASTEXITCODE -ne 0) { throw "CUDA installer exited with $LASTEXITCODE" }
-          $nvcc = Get-ChildItem -Path "$env:LOCALAPPDATA\Programs" -Recurse -Filter 'nvcc.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+          # The bootstrapper spawns the MSI engine and returns immediately, so
+          # completion is detected by polling for nvcc.exe instead of an exit code.
+          Start-Process -FilePath $env:CUDA_INSTALLER -ArgumentList '/silent', '/norestart'
+          $nvccDefault = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v$env:CUDA_VERSION\bin\nvcc.exe"
+          $nvcc = $null
+          $deadline = (Get-Date).AddMinutes(30)
+          while ((Get-Date) -lt $deadline) {
+            if (Test-Path -LiteralPath $nvccDefault) {
+              $nvcc = Get-Item -LiteralPath $nvccDefault
+              break
+            }
+            Start-Sleep -Seconds 15
+          }
           if (!$nvcc) {
             $nvcc = Get-ChildItem -Path 'C:\Program Files\NVIDIA GPU Computing Toolkit' -Recurse -Filter 'nvcc.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
           }
-          if (!$nvcc) { throw 'nvcc.exe not found after CUDA installation' }
+          if (!$nvcc) { throw 'nvcc.exe not found within 30 minutes after CUDA installation' }
           $cudaHome = Split-Path -Parent (Split-Path -Parent $nvcc.FullName)
           "CUDA_PATH=$cudaHome" >> $env:GITHUB_ENV
-          & (Join-Path $nvcc.DirectoryName 'nvcc.exe') --version
+          & $nvcc.FullName --version
 
       - name: Build engine and run model-free tests
         shell: pwsh
