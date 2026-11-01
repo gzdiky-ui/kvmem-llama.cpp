@@ -60,6 +60,7 @@ from launcher.config import (SPECULATIVE_PROFILES, DEFAULTS, ENGINE_DEFAULTS,
     without_secrets, normalize)
 from launcher.plan import build_plan, capabilities as launcher_capabilities, scoring_settings
 from launcher.export import export_profile, read_revision
+from launcher.worker import require_launch_features
 
 
 def private_log(path, *, truncate=False):
@@ -374,6 +375,7 @@ class Controller:
             result['worker'] = self.worker_capabilities(result['argv'][0], params['Backend'], result['environment'])
             if params['Backend']=='radiance' and params.get('Vision') and not result['worker'].get('multimodal'):
                 raise ValueError('该 Radiance worker 未编入图片解码支持，请使用带 FFmpeg 的视觉构建。 This Radiance worker has no image decoder; use a vision build with FFmpeg.')
+            require_launch_features(result['worker'], params)
             result['resolved_scoring'] = self.scoring_from_argv(result['argv'])
             with socket.socket() as probe:
                 probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -420,6 +422,7 @@ class Controller:
             result['warnings'] = self.redact(run.stdout[:start].strip())
             native_argv = result.get('native_argv', argv)
             result['worker'] = self.worker_capabilities(native_argv[0], params['Backend'])
+            require_launch_features(result['worker'], params)
             result['resolved_scoring'] = self.scoring_from_argv(native_argv)
             if params['Backend'] == 'polystrata':
                 block = params.get('BlockTokens', 32)
@@ -803,6 +806,7 @@ class Controller:
                 _, _, plan, config = self.revision_config(profile, state['revision'])
                 if action != 'select':
                     native = self.worker_capabilities(plan['argv'][0], plan['backend'], plan['environment'])
+                    require_launch_features(native, config['parameters'])
                     if native.get('executable_sha256') != plan.get('worker', {}).get('executable_sha256'):
                         raise ValueError('Worker changed; generate and register a new version')
                     if not self.inspect_model(config, for_launch=True)['can_start']:
@@ -1024,6 +1028,7 @@ class Controller:
         from launcher.process_linux import OwnedProcess
         directory, _, plan, clean = self.revision_config(data['profile_id'], data['revision'])
         native = self.worker_capabilities(plan['argv'][0], plan['backend'], plan['environment'])
+        require_launch_features(native, clean['parameters'])
         if native.get('executable_sha256') != plan.get('worker', {}).get('executable_sha256'):
             raise ValueError('Worker changed after script generation; check the configuration and generate a new version')
         health = self.inspect_model(clean, for_launch=True)

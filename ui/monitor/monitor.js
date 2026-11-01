@@ -712,6 +712,12 @@
       row('engine','NgramMinMatch',['N-gram 最短匹配','N-gram minimum match'],caps.ngram_min_match,config.NgramMinMatch,{optional:true,format:tokens});
       row('engine','FastPrefill',['快速预填充','Fast prefill'],undefined,boolean(config.FastPrefill),{optional:true});
       row('engine','DeviceProfile',['设备性能配置','Device profile'],undefined,config.DeviceProfile,{optional:true});
+      row('engine','TensorParallel',['张量并行','Tensor parallelism'],service.execution?.mode?service.execution.mode==='tensor':undefined,config.TensorParallel,{optional:true});
+      if(service.execution?.mode?service.execution.mode==='tensor':config.TensorParallel){
+        row('engine','TensorAttention',['注意力切分','Attention split'],service.execution?.tensor_attention,'heads');
+        row('engine','TensorSplit',['TP 权重','TP weights'],service.execution?.tensor_split?.length?service.execution.tensor_split:undefined,config.TensorSplit?.length?config.TensorSplit:undefined,{optional:true,format:value=>Array.isArray(value)?value.join(' / '):String(value)});
+        row('engine','TensorShares',['实际 KV heads 分配','Actual KV head allocation'],service.execution?.tensor_shares?.length?service.execution.tensor_shares:undefined,undefined,{optional:true,format:value=>Array.isArray(value)?value.map(s=>`${s.rank+1}: [${s.kv_heads[0]}, ${s.kv_heads[1]})`).join(' / '):String(value)});
+      }
     }
     row('engine','StageLayers',['多卡层数分配','Layers per device'],service.execution?.stage_layers?.length?service.execution.stage_layers:undefined,
       config.StageLayers?.length?config.StageLayers:undefined,{optional:true,format:value=>Array.isArray(value)?value.join(' / '):String(value)});

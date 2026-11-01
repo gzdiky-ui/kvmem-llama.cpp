@@ -109,6 +109,8 @@ def _existing_file(value, label):
 
 def _speculative(p, supplied):
     backend = p['Backend']
+    if backend == 'ninfer':
+        p.setdefault('CheckpointExtraRecomputeTokens', 0)
     mode = p.get('SpeculativeMode') or ('mtp' if p['MtpDrafts'] else 'none')
     spec = SPECULATIVE_PROFILES[backend].get(mode)
     if spec is None:
@@ -229,6 +231,10 @@ def build_plan(data, root=ROOT, *, platform=None, reveal_secrets=False):
         pair('--devices' if len(gpu_ids) > 1 else '--device', ','.join(str(i) for i in range(len(gpu_ids))))
         if layers:
             pair('--stage-layers', ','.join(map(str, layers)))
+        if p.get('TensorParallel'):
+            argv.extend(('--tensor-parallel', '--tensor-attention', 'heads'))
+            if p.get('TensorSplit'):
+                pair('--tensor-split', ','.join(format(x, '.17g') for x in p['TensorSplit']))
         if p['MtpDrafts']:
             for flag, key in [('--spec', 'SpeculativeMode'), ('--draft-tokens', 'MtpDrafts'),
                               ('--ngram-draft-tokens', 'NgramDrafts'), ('--ngram-min-match', 'NgramMinMatch')]:
@@ -322,6 +328,11 @@ def build_plan(data, root=ROOT, *, platform=None, reveal_secrets=False):
         pair('--kvmem-disk-mib', p['DiskMiB'])
     argv += scoring_args(supplied) + p.get('WorkerArgs', [])
     environment = {'CUDA_VISIBLE_DEVICES': p['Gpu'], 'CUDA_DEVICE_ORDER': 'PCI_BUS_ID'}
+    if backend == 'ninfer':
+        # Explicit zero keeps an inherited environment from enabling an unsaved policy.
+        environment['KVMEM_CHECKPOINT_EXTRA_RECOMPUTE_TOKENS'] = str(p['CheckpointExtraRecomputeTokens'])
+        if p['CheckpointExtraRecomputeTokens'] and os.environ.get('KVMEM_CHECKPOINT_MIN_GAP', '0').strip() not in ('', '0'):
+            raise ValueError('CheckpointExtraRecomputeTokens requires KVMEM_CHECKPOINT_MIN_GAP=0')
     if platform == 'linux':
         libraries = [Path(p['Worker']).parent, root / 'lib']
         environment['LD_LIBRARY_PATH'] = ':'.join(dict.fromkeys(str(x) for x in libraries if x.is_dir()))

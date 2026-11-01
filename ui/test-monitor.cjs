@@ -430,6 +430,27 @@ if (process.env.MONITOR_FIXTURE_ONLY) {
     assert.equal(await value('StageLayers'),'20 / 20');
     assert.equal(await page.locator('[data-runtime-config] img').count(),0);
     assert.match(await value('DiskPath'),/<img/);
+    fixtureScenario={...fixtureScenario,props:{...fixtureScenario.props,execution:{mode:'tensor',tensor_attention:'heads',
+      tensor_split:[3,1],tensor_shares:[{rank:0,kv_heads:[0,6]},{rank:1,kv_heads:[6,8]}],stage_layers:[]}}};
+    const tensorRuntime={state:'ready',instance:'config-ninfer-tensor',active_config:{parameters:{Backend:'ninfer',TensorParallel:true,
+      TensorSplit:[1,1],FastPrefill:false}}};
+    await runtime(tensorRuntime);
+    await page.waitForFunction(()=>document.querySelector('[data-runtime-key="TensorShares"] .s-runtime-value')?.textContent==='1: [0, 6) / 2: [6, 8)');
+    assert.equal(await value('TensorParallel'),'开启');
+    assert.equal(await value('TensorAttention'),'heads');
+    assert.equal(await value('TensorSplit'),'3 / 1','service-reported TP weights override requested weights');
+    assert.equal(await setting('TensorSplit').getAttribute('data-source'),'service');
+    assert.equal(await setting('TensorSplit').getAttribute('data-differs'),'true');
+    assert.equal(await setting('TensorShares').getAttribute('data-source'),'service');
+    assert.equal(await setting('StageLayers').count(),0,'TP does not imply pipeline stage counts');
+    fixtureScenario={...fixtureScenario,props:{...fixtureScenario.props,execution:{mode:'single',stage_layers:[]}}};
+    await page.waitForFunction(()=>document.querySelector('[data-runtime-key="TensorParallel"] .s-runtime-value')?.textContent==='关闭');
+    assert.equal(await setting('TensorShares').count(),0,'a service mode change clears old actual allocation');
+    assert.equal(await setting('TensorAttention').count(),0,'reported single-GPU mode overrides a stale TP draft');
+    fixtureScenario={...fixtureScenario,props:{...fixtureScenario.props,execution:{mode:'tensor',tensor_attention:'heads',tensor_split:[],tensor_shares:[]}}};
+    await page.waitForFunction(()=>document.querySelector('[data-runtime-key="TensorParallel"] .s-runtime-value')?.textContent==='开启');
+    assert.equal(await setting('TensorShares').count(),0,'unknown actual allocation must not be inferred from requested weights');
+    assert.equal(await setting('TensorSplit').getAttribute('data-source'),'launch');
     await page.selectOption('[data-language-select]','en');
     assert.equal(await page.locator('[data-runtime-toggle]').getAttribute('aria-expanded'),'true');
     assert.equal(await value('FastPrefill'),'Off');

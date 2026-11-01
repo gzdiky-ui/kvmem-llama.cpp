@@ -4,6 +4,7 @@
   "query_scoring_revision": 2,
   "backends": {
     "ninfer": {
+      "checkpoint_recompute_min_revision": 1,
       "model_format": ".ninfer",
       "speculative_decoding": true,
       "concurrent_requests": true,
@@ -23,6 +24,15 @@
           ],
           "mtp": true,
           "mode": "layer",
+          "modes": [
+            "layer",
+            "tensor"
+          ],
+          "tensor_attention": [
+            "heads"
+          ],
+          "tensor_split": true,
+          "heads_tensor_parallel_min_revision": 1,
           "max_devices": 8
         },
         "ngram": {
