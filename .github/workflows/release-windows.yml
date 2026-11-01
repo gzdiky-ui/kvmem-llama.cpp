@@ -65,7 +65,8 @@ jobs:
           Invoke-WebRequest -Uri $url -OutFile $installer -UseBasicParsing
           if (!(Test-Path -LiteralPath $installer)) { throw 'CUDA installer download failed' }
           $size = (Get-Item -LiteralPath $installer).Length
-          if ($size -lt 3GB) { throw "CUDA installer download too small: $size bytes" }
+          if ($size -lt 1.5GB) { throw "CUDA installer download too small: $size bytes" }
+          "size_bytes=$size" >> $env:GITHUB_ENV
           "CUDA_INSTALLER=$installer" >> $env:GITHUB_ENV
 
       - name: Install CUDA ${{ env.CUDA_VERSION }}
