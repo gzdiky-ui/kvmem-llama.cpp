@@ -84,22 +84,79 @@ jobs:
           $report = @()
           $report += "installer=$env:CUDA_INSTALLER"
           $report += "started_at={0}Z" -f (Get-Date -AsUTC -Format 'yyyy-MM-dd HH:mm:ss')
-          Start-Process -FilePath $env:CUDA_INSTALLER -ArgumentList '/silent', "/log=$logFile", '/norestart' | Out-Null
           $nvccDefault = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v$env:CUDA_VERSION\bin\nvcc.exe"
-          $deadline = (Get-Date).AddMinutes(45)
-          $i = 0
-          while ((Get-Date) -lt $deadline) {
-            if (Test-Path -LiteralPath $nvccDefault) { break }
-            $i++
-            if ($i % 4 -eq 0) {
-              $procs = Get-Process -Name 'cuda*' -ErrorAction SilentlyContinue
-              if (-not $procs) { $procs = Get-Process -Name msiexec -ErrorAction SilentlyContinue }
-              $desc = if ($procs) { ($procs | ForEach-Object { "{0}(pid={1})" -f $_.Name, $_.Id }) -join ', ' } else { 'none' }
-              $logSize = 0
-              if (Test-Path -LiteralPath $logFile) { $logSize = (Get-Item -LiteralPath $logFile).Length }
-              $report += "[{0}] nvcc=absent installer_procs={1} log_bytes={2}" -f $i, $desc, $logSize
+          # The NVIDIA runfile bootstrapper hangs headless before spawning msiexec
+          # (process stays alive, no MSI engine, zero log bytes). Workaround:
+          #   A) extract the MSI packages with /layout and install them with msiexec
+          #   B) fallback: plain /silent install with a longer window
+          $report += 'strategy=A(layout+msiexec) then B(silent 60min)'
+
+          try {
+            Add-MpPreference -ExclusionPath (Split-Path -Parent $env:CUDA_INSTALLER)
+            Add-MpPreference -ExclusionPath 'D:\cuda_layout'
+            Add-MpPreference -ExclusionProcess 'cuda_13.3.0_windows.exe'
+            Add-MpPreference -ExclusionProcess 'msiexec.exe'
+            $report += 'defender exclusions added'
+          } catch {
+            $report += "defender exclusion failed: $_"
+          }
+
+          $ok = 'false'
+
+          # --- Strategy A: /layout extraction + direct msiexec install ---
+          $layoutDir = 'D:\cuda_layout'
+          $aProc = Start-Process -FilePath $env:CUDA_INSTALLER -ArgumentList "/layout=$layoutDir", '/silent' -PassThru
+          $aDeadline = (Get-Date).AddMinutes(30)
+          $j = 0
+          while ((Get-Date) -lt $aDeadline -and -not $aProc.HasExited) {
+            $j++
+            if ($j % 4 -eq 0) {
+              $msis = @(Get-ChildItem -Path $layoutDir -Recurse -Filter '*.msi' -ErrorAction SilentlyContinue)
+              $report += "[layout {0}] msi_count={1} proc=running" -f $j, $msis.Count
             }
             Start-Sleep -Seconds 15
+          }
+          if (-not $aProc.HasExited) {
+            Stop-Process -Id $aProc.Id -Force
+            $report += '[layout] killed after 30 minutes (no exit)'
+          }
+          $layoutMsis = @(Get-ChildItem -Path $layoutDir -Recurse -Filter '*.msi' -ErrorAction SilentlyContinue)
+          $report += "[layout] exit_code={0} msi_count={1}" -f $aProc.ExitCode, $layoutMsis.Count
+          if ($aProc.ExitCode -eq 0 -and $layoutMsis.Count -ge 5) {
+            $fail = 0
+            foreach ($m in ($layoutMsis | Sort-Object FullName)) {
+              $mlog = Join-Path $diagDir ("msi_" + [IO.Path]::GetFileName($m.FullName) + ".log")
+              & msiexec /i $m.FullName /qn /norestart "/l*v=$mlog"
+              $ec = $LASTEXITCODE
+              if ($ec -ne 0 -and $ec -ne 3010) {
+                $fail++
+                $report += "[msi-fail] {0} exit={1}" -f [IO.Path]::GetFileName($m.FullName), $ec
+              }
+            }
+            $report += "[msi] installed={0} failed={1}" -f ($layoutMsis.Count - $fail), $fail
+            if ($fail -eq 0) { $ok = 'true' }
+          } else {
+            $report += '[layout] strategy A not usable, falling back to B'
+          }
+
+          # --- Strategy B: plain /silent install (long window) ---
+          if ($ok -ne 'true') {
+            Start-Process -FilePath $env:CUDA_INSTALLER -ArgumentList '/silent', '/norestart' | Out-Null
+            $deadline = (Get-Date).AddMinutes(60)
+            $i = 0
+            while ((Get-Date) -lt $deadline) {
+              if (Test-Path -LiteralPath $nvccDefault) { break }
+              $i++
+              if ($i % 4 -eq 0) {
+                $procs = Get-Process -Name 'cuda*' -ErrorAction SilentlyContinue
+                if (-not $procs) { $procs = Get-Process -Name msiexec -ErrorAction SilentlyContinue }
+                $desc = if ($procs) { ($procs | ForEach-Object { "{0}(pid={1})" -f $_.Name, $_.Id }) -join ', ' } else { 'none' }
+                $logSize = 0
+                if (Test-Path -LiteralPath $logFile) { $logSize = (Get-Item -LiteralPath $logFile).Length }
+                $report += "[B {0}] nvcc=absent installer_procs={1} log_bytes={2}" -f $i, $desc, $logSize
+              }
+              Start-Sleep -Seconds 15
+            }
           }
           $nvcc = $null
           if (Test-Path -LiteralPath $nvccDefault) { $nvcc = Get-Item -LiteralPath $nvccDefault }
@@ -116,7 +173,7 @@ jobs:
             "CUDA_PATH=$cudaHome" >> $env:GITHUB_ENV
             & $nvcc.FullName --version | ForEach-Object { $report += $_ }
           } else {
-            $report += "FAILED: nvcc.exe not found within 45 minutes"
+            $report += "FAILED: nvcc.exe not found after strategies A+B"
             if (Test-Path -LiteralPath $logFile) {
               $report += '--- installer log tail ---'
               Get-Content -LiteralPath $logFile -Tail 80 | ForEach-Object { $report += $_ }
