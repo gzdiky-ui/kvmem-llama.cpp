@@ -75,8 +75,8 @@ PTQ1/T5 的 FP32 partial 输出和合法非均匀切分、NVFP4 A16/A4/INT8 路�
 
 环境为 Windows、VS 2022 / MSVC 14.44、CUDA 13.2、Release、`sm_120a`。固定依赖为 `ninfer-x64-windows-c7684b1d96347de8`。单卡优先使用 RTX 5060 Ti；双卡顺序为：
 
-- RTX 5060 Ti：`GPU-5847813c-9e6e-bb43-cc5e-621aac091b6c`
-- RTX 5050 Laptop：`GPU-14f08a8c-8d62-4338-8ae4-c669889cdb29`
+- RTX 5060 Ti：`GPU-A`
+- RTX 5050 Laptop：`GPU-B`
 
 每组运行前核实空闲。两卡原生诊断报告无 peer access，实际通过 host memory 中转。没有跨架构、3–8 卡或 Linux 实测。
 
@@ -131,6 +131,6 @@ PTQ1/T5 的 FP32 partial 输出和合法非均匀切分、NVFP4 A16/A4/INT8 路�
 
 源码在 `ninfer-heads-20261030/repo`，独立原生源码在 `ninfer-heads-20261030/backend`。`backends/versions.json` 保存每层 patch hash/依赖/tree，25 层从固定上游干净索引重放并与实际源码核对通过；最终 prepared tree 为 `b68f3788da967c4f2df4593937a819b2c0f35cd7`。
 
-工作区 `C:/Users/leyew/AppData/Local/KVMem/ninfer-heads-20261030/` 下保留 `native-validation.json`、`state-audit.md`、`validation/` 请求/响应/原生日志/性能数据、固定依赖锁、构建计划和失败重试记录。独立候选位于 `candidate-package/`，包内 `provenance/validation.json` 是打包前验收；实际 UI 验收另存 `package-console-acceptance-complete/`，总体索引为 `completion.json`。
+工作区 `$ARTIFACTS/ninfer-heads-20261030/` 下保留 `native-validation.json`、`state-audit.md`、`validation/` 请求/响应/原生日志/性能数据、固定依赖锁、构建计划和失败重试记录。独立候选位于 `candidate-package/`，包内 `provenance/validation.json` 是打包前验收；实际 UI 验收另存 `package-console-acceptance-complete/`，总体索引为 `completion.json`。
 
 原 `release-v0.19.1-rtx50-20261029/package/kvmem-v0.19.1-windows-x64-nvidia-50-ninfer` 保持原样。使用旧包即可回退；不能将新旧进程的 KV/checkpoint 文件互换。
