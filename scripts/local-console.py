@@ -391,11 +391,16 @@ class Controller:
             json.dump(params, stream, ensure_ascii=False); name = stream.name
         try:
             powershell = str(Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe')
+            # PolyStrata validates non-loopback authentication during the dry run.
+            # Pass the key before that check, without putting it in JSON or argv.
+            plan_env = None
+            if api_key and params['Backend'] == 'polystrata':
+                plan_env = dict(os.environ, STRATA_API_KEY=api_key)
             run = subprocess.run([powershell, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
                                   '-File', str(ROOT / 'scripts/windows/describe-launch-json.ps1'),
                                   '-BackendRoot', str(self.backend_root), '-ConfigFile', name],
                                  capture_output=True, encoding='utf-8', errors='replace', timeout=45,
-                                 cwd=self.backend_root,
+                                 cwd=self.backend_root, env=plan_env,
                                  creationflags=subprocess.CREATE_NO_WINDOW)
             if run.returncode:
                 message = run.stderr.strip()[-6000:] or run.stdout.strip()[-6000:]

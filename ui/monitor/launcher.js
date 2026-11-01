@@ -21,7 +21,16 @@
     const title=root.querySelector('.l-intro h1');if(title)title.textContent=locked?tr('当前启动参数','Current launch parameters'):tr('启动配置','Launch configuration');
     const healthBox=root.querySelector('[data-model-health]');if(healthBox)healthBox.hidden=locked;
     const key=root.querySelector('[data-param=ApiKey]');
-    if(locked&&key){key.value='';key.placeholder=runtime?.api_key_configured?tr('已设置 · 密钥不回显','Configured · Key not displayed'):tr('未设置','Not configured');}
+    if(key){
+      if(locked){
+        key.value='';key.dataset.launchKeyHidden='true';
+        const configured=startPending?!!pendingParameters?.ApiKey:runtime?.api_key_configured;
+        key.placeholder=configured?tr('已设置 · 密钥不回显','Configured · Key not displayed'):tr('未设置','Not configured');
+      }else if(key.dataset.launchKeyHidden==='true'){
+        key.value=launchKeys[root.querySelector('[data-param=Backend]')?.value]||'';
+        key.placeholder='';delete key.dataset.launchKeyHidden;
+      }
+    }
     draftStatus();renderBudgetAdjustment();
   }
   function syncRunningConfiguration(status){
