@@ -180,6 +180,34 @@ class ConsoleTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'Worker does not support'):
                     console.Controller.worker_capabilities(self.controller, worker, 'ninfer')
 
+    def test_checkpoint_recompute_plan_rejects_old_worker_before_start(self):
+        config = json.loads(json.dumps(self.config))
+        model = Path(self.tmp.name) / 'checkpoint.ninfer'; model.touch()
+        worker = Path(self.tmp.name) / f'checkpoint{EXE}'; worker.touch(); worker.chmod(0o755)
+        config['parameters'].update(Model=str(model), Worker=str(worker),
+            Gpu='GPU-00000000-0000-0000-0000-000000000001', CheckpointExtraRecomputeTokens=16)
+        with self.assertRaisesRegex(ValueError, 'checkpoint recompute'):
+            self.controller.plan(config)
+        self.controller.worker_capabilities.return_value['checkpoint_recompute_revision'] = 1
+        plan = self.controller.plan(config)
+        self.assertEqual(plan['environment']['KVMEM_CHECKPOINT_EXTRA_RECOMPUTE_TOKENS'], '16')
+
+    def test_heads_tensor_parallel_plan_rejects_old_worker_before_start(self):
+        model = Path(self.tmp.name) / 'tensor.ninfer'; model.touch()
+        worker = Path(self.tmp.name) / f'tensor{EXE}'; worker.touch()
+        worker.chmod(0o755)
+        self.config['parameters'].update(Model=str(model), Worker=str(worker),
+            Gpu='GPU-00000000-0000-0000-0000-000000000001,GPU-00000000-0000-0000-0000-000000000002',
+            TensorParallel=True, TensorSplit=[3, 1])
+        with self.assertRaisesRegex(ValueError, 'heads tensor parallelism'):
+            self.controller.plan(self.config)
+        self.assertIsNone(self.controller.process)
+        self.controller.worker_capabilities.return_value['heads_tensor_parallel_revision'] = 1
+        plan = self.controller.plan(self.config)
+        self.assertEqual(plan['argv'][plan['argv'].index('--tensor-attention') + 1], 'heads')
+        self.assertEqual(plan['argv'][plan['argv'].index('--tensor-split') + 1], '3,1')
+        self.assertIsNone(self.controller.process)
+
     def test_actual_scoring_is_observed_independently_of_the_editing_draft(self):
         planned = self.controller.scoring_from_argv(['worker', '--kvmem-query-scorer', 'meanq-cosine',
             '--kvmem-score-agg', 'max', '--kvmem-graph-alpha', '.123456789', '--no-kvmem-lrfu'])

@@ -1,6 +1,7 @@
 """Shared configuration contract extracted from the existing console."""
 import copy
 import json
+import math
 import re
 from pathlib import Path
 
@@ -28,6 +29,7 @@ ENGINE_DEFAULTS = {'ninfer': {'Context': 262144,
             'Lrfu': False,
             'QueryMaxTokens': 512,
             'QueryReplayMaxTokens': 2048,
+            'CheckpointExtraRecomputeTokens': 0,
             'ThinkingMode': 'default',
             'KvType': 'int8',
             'Prefill': 256,
@@ -118,8 +120,8 @@ STRINGS = {'RadianceHome', 'RocmPath', 'Tokenizer','PolystrataSource','Python','
 INTEGERS = {'BlockTokens', 'VramReserveMiB', 'Context', 'Budget', 'Reserve', 'HostMiB', 'Prefill', 'MaxTokens', 'Port',
             'MtpDrafts', 'NgramDrafts', 'NgramMinMatch', 'Concurrency', 'RetainedSessions',
             'VisionTokens', 'ThinkingBudget', 'SinkTokens', 'RecentTokens', 'DiskMiB', 'DraftTokens',
-            'QueryMaxTokens', 'QueryReplayMaxTokens', 'ReplayMaxTokens'}
-BOOLEANS = {'AdaptiveMtp', 'FastPrefill', 'Vision', 'NoLrfu', 'Lrfu', 'PreserveThinking'}
+            'QueryMaxTokens', 'QueryReplayMaxTokens', 'ReplayMaxTokens', 'CheckpointExtraRecomputeTokens'}
+BOOLEANS = {'AdaptiveMtp', 'FastPrefill', 'Vision', 'NoLrfu', 'Lrfu', 'PreserveThinking', 'TensorParallel'}
 DECIMALS = {'LrfuLambda', 'LrfuTopFraction', 'GraphAlpha'}
 # Deliberately limited native escape hatch. Common options must not be duplicated.
 NATIVE = {'llamacpp': {'--threads', '--threads-batch', '--n-gpu-layers'},
@@ -140,7 +142,7 @@ def normalize(data, backends):
     params = data.get('parameters')
     if not isinstance(params, dict):
         raise ValueError('parameters must be an object')
-    allowed = STRINGS | INTEGERS | BOOLEANS | DECIMALS | {'StageLayers', 'WorkerArgs'}
+    allowed = STRINGS | INTEGERS | BOOLEANS | DECIMALS | {'StageLayers', 'TensorSplit', 'WorkerArgs'}
     if set(params) - allowed:
         raise ValueError('Unknown parameters: ' + ', '.join(sorted(set(params) - allowed)))
     p = copy.deepcopy(params)
@@ -183,6 +185,8 @@ def normalize(data, backends):
     for key in ('QueryMaxTokens', 'QueryReplayMaxTokens'):
         if key in p and p[key] <= 0:
             raise ValueError(f'{key} must be positive')
+    if 'CheckpointExtraRecomputeTokens' in p and p['Backend'] != 'ninfer':
+        raise ValueError('CheckpointExtraRecomputeTokens configures NInfer only')
     history = p.get('Lrfu', p.get('QueryScorer') == 'meanq-cosine')
     if not history and {'LrfuLambda', 'LrfuTopFraction'} & p.keys():
         raise ValueError('LRFU tuning requires enabled LRFU')
@@ -259,6 +263,24 @@ def normalize(data, backends):
     layers = p.get('StageLayers', [])
     if not isinstance(layers, list) or len(layers) > 8 or any(type(x) is not int or x < 1 for x in layers):
         raise ValueError('StageLayers must contain positive integers')
+    split = p.get('TensorSplit', [])
+    if not isinstance(split, list) or len(split) > 8 or any(
+            type(x) not in (int, float) or not 0 < x <= float('1.7976931348623157e308') for x in split):
+        raise ValueError('TensorSplit must contain finite positive weights')
+    if not math.isfinite(sum(float(x) for x in split)):
+        raise ValueError('TensorSplit total weight must be finite')
+    if p['Backend'] != 'ninfer' and ({'TensorParallel', 'TensorSplit'} & p.keys()):
+        raise ValueError('TensorParallel and TensorSplit configure NInfer only')
+    if p.get('TensorParallel'):
+        ids = gpu.split(',') if gpu else []
+        if not 2 <= len(ids) <= 8 or len(set(ids)) != len(ids):
+            raise ValueError('TensorParallel requires 2..8 distinct GPU UUIDs')
+        if layers:
+            raise ValueError('TensorParallel cannot be combined with StageLayers')
+        if split and len(split) != len(ids):
+            raise ValueError('TensorSplit requires one weight per GPU, in UUID order')
+    elif split:
+        raise ValueError('TensorSplit requires TensorParallel')
     args = p.get('WorkerArgs', [])
     if not isinstance(args, list) or len(args) > 20 or any(not isinstance(x, str) for x in args):
         raise ValueError('Native arguments must be an array of strings')

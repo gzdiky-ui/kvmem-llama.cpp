@@ -47,3 +47,13 @@ def probe_worker(worker, backend, environment=None):
         raise ValueError('Worker changed during capability probing; retry after the update completes')
     value.update(executable_sha256=digest, path=str(path))
     return value
+
+
+def require_launch_features(capabilities, parameters):
+    checkpoint_revision = capabilities.get('checkpoint_recompute_revision')
+    if parameters.get('CheckpointExtraRecomputeTokens', 0) and (
+            type(checkpoint_revision) is not int or checkpoint_revision < 1):
+        raise ValueError('This worker does not support checkpoint recompute limits; update the complete NInfer package')
+    revision = capabilities.get('heads_tensor_parallel_revision')
+    if parameters.get('TensorParallel') and (type(revision) is not int or revision < 1):
+        raise ValueError('This worker does not support KVMem heads tensor parallelism; update the complete NInfer package')
