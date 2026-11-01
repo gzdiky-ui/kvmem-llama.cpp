@@ -1,0 +1,201 @@
+name: Windows CUDA Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (default: v<VERSION>)'
+        required: false
+        default: ''
+      cuda_arch:
+        description: 'CUDA architectures, semicolon-separated (default: all supported). Example: 120a-real'
+        required: false
+        default: ''
+      publish:
+        description: 'Create the GitHub Release after the build succeeds'
+        required: false
+        default: 'true'
+
+permissions:
+  contents: write
+
+env:
+  CUDA_VERSION: '13.3.0'
+  DEFAULT_CUDA_ARCHS: '75-real;80-real;86-real;89-real;90-real;120a-real'
+
+jobs:
+  build:
+    name: build-and-test (windows-latest)
+    runs-on: windows-latest
+    timeout-minutes: 360
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+      arch: ${{ steps.meta.outputs.arch }}
+      commit: ${{ steps.meta.outputs.commit }}
+      zip: ${{ steps.package.outputs.zip_name }}
+      zip_sha256: ${{ steps.package.outputs.zip_sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Resolve release metadata
+        id: meta
+        shell: pwsh
+        run: |
+          $version = (Get-Content -Raw VERSION).Trim()
+          $tag = if ('${{ github.event.inputs.tag }}' -ne '') { '${{ github.event.inputs.tag }}' } else { "v$version" }
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "version=$version" >> $env:GITHUB_OUTPUT
+          $arch = '${{ github.event.inputs.cuda_arch }}'
+          if ([string]::IsNullOrWhiteSpace($arch)) { $arch = '${{ env.DEFAULT_CUDA_ARCHS }}' }
+          "arch=$arch" >> $env:GITHUB_OUTPUT
+          "commit=${{ github.sha }}" >> $env:GITHUB_OUTPUT
+
+      - name: Download CUDA ${{ env.CUDA_VERSION }}
+        shell: pwsh
+        run: |
+          $installer = Join-Path $env:RUNNER_TEMP "cuda_${env:CUDA_VERSION}_windows.exe"
+          $url = "https://developer.download.nvidia.com/compute/cuda/${env:CUDA_VERSION}/local_installers/cuda_${env:CUDA_VERSION}_windows.exe"
+          Invoke-WebRequest -Uri $url -OutFile $installer -UseBasicParsing
+          if (!(Test-Path -LiteralPath $installer)) { throw 'CUDA installer download failed' }
+          "CUDA_INSTALLER=$installer" >> $env:GITHUB_ENV
+
+      - name: Install CUDA ${{ env.CUDA_VERSION }}
+        shell: pwsh
+        run: |
+          & $env:CUDA_INSTALLER /silent /addtoappdata /norestart
+          if ($LASTEXITCODE -ne 0) { throw "CUDA installer exited with $LASTEXITCODE" }
+          $nvcc = Get-ChildItem -Path "$env:LOCALAPPDATA\Programs" -Recurse -Filter 'nvcc.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (!$nvcc) {
+            $nvcc = Get-ChildItem -Path 'C:\Program Files\NVIDIA GPU Computing Toolkit' -Recurse -Filter 'nvcc.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+          }
+          if (!$nvcc) { throw 'nvcc.exe not found after CUDA installation' }
+          $cudaHome = Split-Path -Parent (Split-Path -Parent $nvcc.FullName)
+          "CUDA_PATH=$cudaHome" >> $env:GITHUB_ENV
+          & (Join-Path $nvcc.DirectoryName 'nvcc.exe') --version
+
+      - name: Build engine and run model-free tests
+        shell: pwsh
+        run: |
+          $arch = '${{ steps.meta.outputs.arch }}'
+          $useDefaultArchs = ($arch -eq '${{ env.DEFAULT_CUDA_ARCHS }}')
+          if ($useDefaultArchs) {
+            & (Join-Path $PWD 'scripts\windows\build.ps1') -Jobs 4
+          } else {
+            & (Join-Path $PWD 'scripts\windows\build.ps1') -CudaArchitectures $arch -Jobs 4
+          }
+
+      - name: Smoke test (llama-kvmem-server --version)
+        shell: pwsh
+        run: |
+          & "$PWD\build-win\bin\Release\llama-kvmem-server.exe" --version
+
+      - name: Package release
+        id: package
+        shell: pwsh
+        run: |
+          $binDir = Join-Path $PWD 'build-win\bin\Release'
+          $dist = Join-Path $PWD 'release-dist'
+          if (Test-Path -LiteralPath $dist) { Remove-Item -LiteralPath $dist -Recurse -Force }
+          New-Item -ItemType Directory -Path $dist -Force | Out-Null
+          foreach ($exe in @('llama-kvmem-server.exe', 'llama-kvmem-cli.exe', 'llama-quantize.exe')) {
+            $src = Join-Path $binDir $exe
+            if (!(Test-Path -LiteralPath $src)) { throw "Missing build output: $exe" }
+            Copy-Item -LiteralPath $src -Destination $dist
+          }
+          Get-ChildItem -LiteralPath $binDir -File -Filter '*.dll' | Copy-Item -Destination $dist
+          $lines = @()
+          Get-ChildItem -LiteralPath $dist -File | Sort-Object Name | ForEach-Object {
+            $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLower()
+            $lines += ('{0}  {1}' -f $hash, $_.Name)
+          }
+          $lines | Out-File -FilePath (Join-Path $dist 'SHA256SUMS.txt') -Encoding utf8
+          $info = @(
+            'kvmem-llama.cpp Windows CUDA release',
+            ('version={0}' -f '${{ steps.meta.outputs.version }}'),
+            ('tag={0}' -f '${{ steps.meta.outputs.tag }}'),
+            ('commit={0}' -f '${{ steps.meta.outputs.commit }}'),
+            ('cuda={0} ({1})' -f $env:CUDA_VERSION, $env:CUDA_PATH),
+            ('arch={0}' -f '${{ steps.meta.outputs.arch }}'),
+            'runner=windows-latest (GitHub Actions)',
+            ('built_at={0}Z' -f (Get-Date -AsUTC -Format 'yyyy-MM-dd HH:mm:ss'))
+          )
+          $info | Out-File -FilePath (Join-Path $dist 'BUILD_INFO.txt') -Encoding utf8
+          $zipName = 'kvmem-llama.cpp-v{0}-windows-cuda-{1}-x64.zip' -f '${{ steps.meta.outputs.version }}', $env:CUDA_VERSION
+          Compress-Archive -Path (Join-Path $dist '*') -DestinationPath (Join-Path $PWD $zipName)
+          Copy-Item -LiteralPath (Join-Path $dist 'BUILD_INFO.txt') -Destination $PWD
+          Copy-Item -LiteralPath (Join-Path $dist 'SHA256SUMS.txt') -Destination $PWD
+          "zip_name=$zipName" >> $env:GITHUB_OUTPUT
+          "zip_sha256=$((Get-FileHash -LiteralPath (Join-Path $PWD $zipName) -Algorithm SHA256).Hash.ToLower())" >> $env:GITHUB_OUTPUT
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-cuda-release
+          path: |
+            ${{ steps.package.outputs.zip_name }}
+            BUILD_INFO.txt
+            SHA256SUMS.txt
+
+  release:
+    name: publish-release
+    needs: build
+    if: github.event.inputs.publish != 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-cuda-release
+          path: dist
+
+      - name: Create or update GitHub Release
+        env:
+          TAG: ${{ needs.build.outputs.tag }}
+          ZIP: ${{ needs.build.outputs.zip }}
+          VERSION: ${{ needs.build.outputs.version }}
+          ARCH: ${{ needs.build.outputs.arch }}
+          COMMIT: ${{ needs.build.outputs.commit }}
+          ZIP_SHA256: ${{ needs.build.outputs.zip_sha256 }}
+          CUDA_VERSION: ${{ env.CUDA_VERSION }}
+          RUN_URL: https://github.com/gzdiky-ui/kvmem-llama.cpp/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          zip_path="dist/$ZIP"
+          cat > release-notes.md <<EOF
+          # kvmem-llama.cpp v$VERSION — Windows CUDA $CUDA_VERSION
+
+          - **Tag:** $TAG
+          - **Commit:** $COMMIT
+          - **CUDA:** $CUDA_VERSION (nvcc, windows-latest)
+          - **Architectures:** $ARCH
+          - **Package SHA256:** $ZIP_SHA256
+
+          ## Verification
+          - \`scripts/windows/build.ps1\` (MSVC x64 + Ninja, CUDA Toolkit $CUDA_VERSION)
+          - model-free ctest suite from the build script
+          - \`llama-kvmem-server --version\` smoke test
+
+          ## Contents
+          - \`llama-kvmem-server.exe\`
+          - \`llama-kvmem-cli.exe\`
+          - \`llama-quantize.exe\`
+          - \`SHA256SUMS.txt\`, \`BUILD_INFO.txt\`
+
+          Verify each file with \`Get-FileHash -Algorithm SHA256\` against \`SHA256SUMS.txt\`.
+
+          Build workflow run: $RUN_URL
+          EOF
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG exists; uploading package (clobber)."
+            gh release upload "$TAG" "$zip_path" --clobber
+          else
+            gh release create "$TAG" "$zip_path" \
+              --title "kvmem-llama.cpp v$VERSION (Windows CUDA $CUDA_VERSION)" \
+              --notes-file release-notes.md
+          fi
