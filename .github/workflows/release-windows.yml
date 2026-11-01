@@ -64,33 +64,78 @@ jobs:
           $url = "https://developer.download.nvidia.com/compute/cuda/${env:CUDA_VERSION}/local_installers/cuda_${env:CUDA_VERSION}_windows.exe"
           Invoke-WebRequest -Uri $url -OutFile $installer -UseBasicParsing
           if (!(Test-Path -LiteralPath $installer)) { throw 'CUDA installer download failed' }
+          $size = (Get-Item -LiteralPath $installer).Length
+          if ($size -lt 3GB) { throw "CUDA installer download too small: $size bytes" }
           "CUDA_INSTALLER=$installer" >> $env:GITHUB_ENV
 
       - name: Install CUDA ${{ env.CUDA_VERSION }}
+        id: install
         shell: pwsh
         run: |
-          # The bootstrapper spawns the MSI engine and returns immediately, so
-          # completion is detected by polling for nvcc.exe instead of an exit code.
-          Start-Process -FilePath $env:CUDA_INSTALLER -ArgumentList '/silent', '/norestart'
+          # The bootstrapper returns before the MSI engine finishes, so completion
+          # is detected by polling for nvcc.exe. Diagnostics are written so a failed
+          # install can be inspected from the uploaded artifact.
+          $diagDir = 'C:\cuda-install-diagnostics'
+          $logFile = Join-Path $diagDir 'installer.log'
+          $reportFile = Join-Path $diagDir 'install-report.txt'
+          New-Item -ItemType Directory -Path $diagDir -Force | Out-Null
+          $ok = 'false'
+          $report = @()
+          $report += "installer=$env:CUDA_INSTALLER"
+          $report += "started_at={0}Z" -f (Get-Date -AsUTC -Format 'yyyy-MM-dd HH:mm:ss')
+          Start-Process -FilePath $env:CUDA_INSTALLER -ArgumentList '/silent', "/log=$logFile", '/norestart' | Out-Null
           $nvccDefault = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v$env:CUDA_VERSION\bin\nvcc.exe"
-          $nvcc = $null
-          $deadline = (Get-Date).AddMinutes(30)
+          $deadline = (Get-Date).AddMinutes(45)
+          $i = 0
           while ((Get-Date) -lt $deadline) {
-            if (Test-Path -LiteralPath $nvccDefault) {
-              $nvcc = Get-Item -LiteralPath $nvccDefault
-              break
+            if (Test-Path -LiteralPath $nvccDefault) { break }
+            $i++
+            if ($i % 4 -eq 0) {
+              $procs = Get-Process -Name 'cuda*' -ErrorAction SilentlyContinue
+              if (-not $procs) { $procs = Get-Process -Name msiexec -ErrorAction SilentlyContinue }
+              $desc = if ($procs) { ($procs | ForEach-Object { "{0}(pid={1})" -f $_.Name, $_.Id }) -join ', ' } else { 'none' }
+              $logSize = 0
+              if (Test-Path -LiteralPath $logFile) { $logSize = (Get-Item -LiteralPath $logFile).Length }
+              $report += "[{0}] nvcc=absent installer_procs={1} log_bytes={2}" -f $i, $desc, $logSize
             }
             Start-Sleep -Seconds 15
           }
+          $nvcc = $null
+          if (Test-Path -LiteralPath $nvccDefault) { $nvcc = Get-Item -LiteralPath $nvccDefault }
           if (!$nvcc) {
             $nvcc = Get-ChildItem -Path 'C:\Program Files\NVIDIA GPU Computing Toolkit' -Recurse -Filter 'nvcc.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
           }
-          if (!$nvcc) { throw 'nvcc.exe not found within 30 minutes after CUDA installation' }
-          $cudaHome = Split-Path -Parent (Split-Path -Parent $nvcc.FullName)
-          "CUDA_PATH=$cudaHome" >> $env:GITHUB_ENV
-          & $nvcc.FullName --version
+          if (!$nvcc) {
+            $nvcc = Get-ChildItem -Path 'D:\Program Files\NVIDIA GPU Computing Toolkit' -Recurse -Filter 'nvcc.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+          }
+          if ($nvcc) {
+            $ok = 'true'
+            $report += "nvcc={0}" -f $nvcc.FullName
+            $cudaHome = Split-Path -Parent $nvcc.FullName
+            "CUDA_PATH=$cudaHome" >> $env:GITHUB_ENV
+            & $nvcc.FullName --version | ForEach-Object { $report += $_ }
+          } else {
+            $report += "FAILED: nvcc.exe not found within 45 minutes"
+            if (Test-Path -LiteralPath $logFile) {
+              $report += '--- installer log tail ---'
+              Get-Content -LiteralPath $logFile -Tail 80 | ForEach-Object { $report += $_ }
+            }
+          }
+          $report | Out-File -LiteralPath $reportFile -Encoding utf8
+          $report | Select-Object -Last 30
+          "ok=$ok" >> $env:GITHUB_OUTPUT
+          if ($ok -ne 'true') { exit 1 }
+
+      - name: Upload CUDA install diagnostics
+        if: failure() && steps.install.outputs.ok != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cuda-install-diagnostics
+          path: C:\cuda-install-diagnostics\
+          if-no-files-found: ignore
 
       - name: Build engine and run model-free tests
+        if: steps.install.outputs.ok == 'true'
         shell: pwsh
         run: |
           $arch = '${{ steps.meta.outputs.arch }}'
@@ -102,11 +147,13 @@ jobs:
           }
 
       - name: Smoke test (llama-kvmem-server --version)
+        if: steps.install.outputs.ok == 'true'
         shell: pwsh
         run: |
           & "$PWD\build-win\bin\Release\llama-kvmem-server.exe" --version
 
       - name: Package release
+        if: steps.install.outputs.ok == 'true'
         id: package
         shell: pwsh
         run: |
@@ -145,6 +192,7 @@ jobs:
           "zip_sha256=$((Get-FileHash -LiteralPath (Join-Path $PWD $zipName) -Algorithm SHA256).Hash.ToLower())" >> $env:GITHUB_OUTPUT
 
       - name: Upload release artifact
+        if: steps.install.outputs.ok == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: windows-cuda-release
